@@ -92,6 +92,8 @@ The system prompt lists the valid levels for the current session. Cached session
 
 With `autoSelect` enabled, the plugin classifies the first user request in a session and sets the effort from the available variants for the current model, ignoring `none`. The chosen level is carried across turns until the agent changes it, the model changes, or a request carries an explicit variant. An explicit variant (UI picker, CLI flag, or API field) is honored and becomes the level carried forward.
 
+When `autoSelect` is off, the plugin still classifies each user turn and adds a recommendation to the guidance. If the recommended level differs from the current one, the agent is told to call the tool with that level; if it matches, the agent is told not to call. The default guidance relies on this recommendation instead of a blanket reassessment instruction.
+
 Adaptive-thinking guidance is merged into the first existing system prompt instead of a separate system message, so strict chat templates that allow only one system message keep working.
 
 ## Troubleshooting

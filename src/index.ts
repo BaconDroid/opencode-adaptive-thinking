@@ -13,6 +13,7 @@ type ModelInfo = { providerID: string; modelID: string };
 type SessionMessage = { info: Message; parts: Array<Part> };
 type SessionState = {
   variant?: string;
+  recommendation?: string;
   reset?: { level: string; agent: string; model?: ModelInfo };
 };
 
@@ -226,8 +227,6 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
       }),
     },
     "chat.message": async ({ sessionID, variant }, { message, parts }) => {
-      if (!config.autoSelect) return;
-
       const text = promptText(parts);
       if (text === undefined) return;
 
@@ -235,19 +234,40 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
         (message.model as { variant?: string }).variant = variant;
         state.update(sessionID, (entry) => {
           entry.variant = variant;
+          delete entry.recommendation;
         });
         return;
       }
 
       const variants = await variantsFor(message.model);
-      const cached = state.get(sessionID)?.variant;
-      const level =
-        cached && variants.includes(cached) ? cached : pickVariant(variants, classifyPrompt(text));
-      if (!level) return;
+      const current = variant ?? (message.model as { variant?: string }).variant;
 
-      (message.model as { variant?: string }).variant = level;
+      if (config.autoSelect) {
+        const cached = state.get(sessionID)?.variant;
+        const level =
+          cached && variants.includes(cached)
+            ? cached
+            : pickVariant(variants, classifyPrompt(text));
+        if (!level) return;
+
+        (message.model as { variant?: string }).variant = level;
+        state.update(sessionID, (entry) => {
+          entry.variant = level;
+          delete entry.recommendation;
+        });
+        return;
+      }
+
+      if (current) {
+        state.update(sessionID, (entry) => {
+          entry.variant = current;
+        });
+      }
+
+      const recommended = pickVariant(variants, classifyPrompt(text));
       state.update(sessionID, (entry) => {
-        entry.variant = level;
+        if (recommended) entry.recommendation = recommended;
+        else delete entry.recommendation;
       });
     },
     event: async ({ event }) => {
@@ -302,12 +322,20 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
         }
       }
 
+      const recommendation = state.get(sessionID)?.recommendation;
+      const effortInstruction = config.autoSelect
+        ? `Reasoning effort is selected automatically; call \`${config.toolName}\` only to override it.`
+        : recommendation && recommendation !== variant
+          ? `This turn suggests ${recommendation} effort${variant ? ` (current: ${variant})` : ""}. Call \`${config.toolName}\` with \`${recommendation}\` before proceeding.`
+          : recommendation
+            ? `The current level fits this turn; do not call \`${config.toolName}\`.`
+            : `Call \`${config.toolName}\` only when the current level no longer fits the task.`;
+
       const guidance = [
         config.systemPrompt.trim(),
         variant ? `Current reasoning effort level: ${variant}.` : "",
         `Valid reasoning effort levels for this session: ${variants.join(", ")}.`,
-        `To change your reasoning effort, use the \`${config.toolName}\` tool with one of the valid levels.`,
-        "Only call it when the task complexity justifies changing levels.",
+        effortInstruction,
       ]
         .filter(Boolean)
         .join(" ");

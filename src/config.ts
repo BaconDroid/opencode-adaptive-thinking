@@ -1,8 +1,6 @@
 export const defaultSystemPrompt =
-  "You MUST manage reasoning effort actively. " +
-  "Lower it before trivial or routine turns; raise it for ambiguity, debugging, risky changes, or multi-step synthesis. " +
-  "Reassess at turn start, after meaningful new evidence, and when the task shifts. " +
-  "NEVER leave the current level unchanged by inertia, and NEVER reply to a trivial turn before considering a downshift.";
+  "Match reasoning effort to the work: lower it for routine or trivial turns, raise it for ambiguity, debugging, risky changes, or multi-step synthesis. " +
+  "Use the per-turn recommendation when one is provided; otherwise call the tool only when the current level no longer fits the task.";
 
 export type Config = {
   enabled: boolean;

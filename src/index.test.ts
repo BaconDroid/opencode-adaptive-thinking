@@ -88,7 +88,7 @@ describe("AdaptiveThinkingPlugin", () => {
 
     const system: Array<string> = [];
     await transform(plugin, "defaults", system);
-    expect(system[0]).toContain("You MUST manage reasoning effort actively");
+    expect(system[0]).toContain("Match reasoning effort to the work");
     expect(system[0]).toContain("Current reasoning effort level: high.");
     expect(system[0]).toContain(
       "Valid reasoning effort levels for this session: none, low, medium, high, xhigh.",
@@ -111,7 +111,7 @@ describe("AdaptiveThinkingPlugin", () => {
     await transform(plugin, "custom", system);
     expect(system).toHaveLength(1);
     expect(system[0]?.startsWith("Base prompt.\n\nPrefer cheap.")).toBe(true);
-    expect(system[0]).not.toContain("You MUST manage");
+    expect(system[0]).not.toContain("Match reasoning effort");
     expect(system[0]).toContain("adjust_reasoning");
   });
 
@@ -175,6 +175,38 @@ describe("AdaptiveThinkingPlugin", () => {
       { message: ignored, parts: [{ type: "text", text: "debug the flaky race", ignored: true }] },
     );
     expect((ignored.model as { variant?: string }).variant).toBeUndefined();
+  });
+
+  test("recommends an effort change only when the turn needs one", async () => {
+    const { client } = createClient([message("low")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never);
+    const input = { sessionID: "recommend", model: { providerID: "provider", modelID: "model" } };
+
+    await plugin["chat.message"](input, {
+      message: message("low").info,
+      parts: [{ type: "text", text: "debug the flaky race" }],
+    });
+    const system: Array<string> = [];
+    await transform(plugin, "recommend", system);
+    expect(system[0]).toContain("This turn suggests high effort");
+    expect(system[0]).toContain("with `high`");
+
+    await plugin["chat.message"](input, {
+      message: message("low").info,
+      parts: [{ type: "text", text: "fix a typo" }],
+    });
+    const next: Array<string> = [];
+    await transform(plugin, "recommend", next);
+    expect(next[0]).toContain("do not call `set_reasoning_effort`");
+  });
+
+  test("tells the agent that effort is managed when autoSelect is enabled", async () => {
+    const { client } = createClient();
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, { autoSelect: true });
+    const system: Array<string> = [];
+
+    await transform(plugin, "auto-instruction", system);
+    expect(system[0]).toContain("selected automatically");
   });
 
   test("returns no hooks when disabled", async () => {
