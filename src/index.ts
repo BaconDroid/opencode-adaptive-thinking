@@ -230,7 +230,7 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
       const text = promptText(parts);
       if (text === undefined) return;
 
-      if (variant) {
+      if (config.autoSelect && variant) {
         (message.model as { variant?: string }).variant = variant;
         state.update(sessionID, (entry) => {
           entry.variant = variant;
@@ -274,7 +274,16 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
       if (event.type !== "session.idle") return;
 
       const sessionID = event.properties.sessionID;
-      const reset = state.get(sessionID)?.reset;
+      const session = state.get(sessionID);
+      if (!session) return;
+
+      if (session.recommendation) {
+        state.update(sessionID, (entry) => {
+          delete entry.recommendation;
+        });
+      }
+
+      const reset = session.reset;
       if (!reset) return;
 
       const response = await sendVariantPrompt(
@@ -328,7 +337,7 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
         : recommendation && recommendation !== variant
           ? `This turn suggests ${recommendation} effort${variant ? ` (current: ${variant})` : ""}. Call \`${config.toolName}\` with \`${recommendation}\` before proceeding.`
           : recommendation
-            ? `The current level fits this turn; do not call \`${config.toolName}\`.`
+            ? `The current level fits this request; call \`${config.toolName}\` only if the work grows beyond it.`
             : `Call \`${config.toolName}\` only when the current level no longer fits the task.`;
 
       const guidance = [

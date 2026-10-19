@@ -1,6 +1,6 @@
 export const defaultSystemPrompt =
   "Match reasoning effort to the work: lower it for routine or trivial turns, raise it for ambiguity, debugging, risky changes, or multi-step synthesis. " +
-  "Use the per-turn recommendation when one is provided; otherwise call the tool only when the current level no longer fits the task.";
+  "Use the per-turn recommendation when one is provided, and reassess when new evidence changes the work; otherwise call the tool only when the current level no longer fits the task.";
 
 export type Config = {
   enabled: boolean;

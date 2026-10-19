@@ -197,7 +197,28 @@ describe("AdaptiveThinkingPlugin", () => {
     });
     const next: Array<string> = [];
     await transform(plugin, "recommend", next);
-    expect(next[0]).toContain("do not call `set_reasoning_effort`");
+    expect(next[0]).toContain("only if the work grows beyond it");
+  });
+
+  test("clears the recommendation at the end of a turn", async () => {
+    const { client } = createClient([message("low")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never);
+    const input = {
+      sessionID: "recommend-idle",
+      model: { providerID: "provider", modelID: "model" },
+    };
+
+    await plugin["chat.message"](input, {
+      message: message("low").info,
+      parts: [{ type: "text", text: "debug the flaky race" }],
+    });
+    await idle(plugin, "recommend-idle");
+
+    const system: Array<string> = [];
+    await transform(plugin, "recommend-idle", system);
+    expect(system[0]).toContain(
+      "Call `set_reasoning_effort` only when the current level no longer fits the task.",
+    );
   });
 
   test("tells the agent that effort is managed when autoSelect is enabled", async () => {
