@@ -150,7 +150,7 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
     return text.length > 0 ? text : undefined;
   };
 
-  const followUp = /^(continue|go on|proceed|next|yes|ok|okay|sure|do it|go ahead|thanks|merci)\b/i;
+  const followUp = /^(continue|go on|proceed|next|yes|ok|okay|sure|do it|go ahead|thanks)\b/i;
   const isFollowUp = (text: string) => text.length < 60 && followUp.test(text);
 
   const sendVariantPrompt = (
