@@ -140,11 +140,12 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
 
   const promptText = (parts: Array<Part>) => {
     if (parts.some((part) => part.type === "text" && part.ignored)) return;
-    return parts
+    const text = parts
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("\n")
       .trim();
+    return text.length > 0 ? text : undefined;
   };
 
   const sendVariantPrompt = (
@@ -224,11 +225,19 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
         },
       }),
     },
-    "chat.message": async ({ sessionID }, { message, parts }) => {
+    "chat.message": async ({ sessionID, variant }, { message, parts }) => {
       if (!config.autoSelect) return;
 
       const text = promptText(parts);
       if (text === undefined) return;
+
+      if (variant) {
+        (message.model as { variant?: string }).variant = variant;
+        state.update(sessionID, (entry) => {
+          entry.variant = variant;
+        });
+        return;
+      }
 
       const variants = await variantsFor(message.model);
       const cached = state.get(sessionID)?.variant;

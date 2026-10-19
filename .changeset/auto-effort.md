@@ -2,4 +2,4 @@
 "opencode-adaptive-thinking": minor
 ---
 
-Add an opt-in `autoSelect` mode that classifies each user request and sets the reasoning effort from the current model's variants.
+Add an opt-in `autoSelect` mode that classifies the first user request in a session and carries the chosen reasoning effort until the agent, an explicit variant, or a model change overrides it.

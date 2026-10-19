@@ -135,6 +135,29 @@ describe("AdaptiveThinkingPlugin", () => {
     expect((second.model as { variant?: string }).variant).toBe("low");
   });
 
+  test("honors an explicit variant in autoSelect mode", async () => {
+    const { client } = createClient();
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, { autoSelect: true });
+    const input = {
+      sessionID: "auto-explicit",
+      model: { providerID: "provider", modelID: "model" },
+    };
+
+    const first = message().info;
+    await plugin["chat.message"](
+      { ...input, variant: "high" },
+      { message: first, parts: [{ type: "text", text: "fix a typo" }] },
+    );
+    expect((first.model as { variant?: string }).variant).toBe("high");
+
+    const second = message().info;
+    await plugin["chat.message"](input, {
+      message: second,
+      parts: [{ type: "text", text: "fix a typo" }],
+    });
+    expect((second.model as { variant?: string }).variant).toBe("high");
+  });
+
   test("leaves messages alone when autoSelect is disabled or the prompt is ignored", async () => {
     const { client } = createClient();
     const plugin: any = await AdaptiveThinkingPlugin({ client } as never);
