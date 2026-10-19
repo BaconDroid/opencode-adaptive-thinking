@@ -7,6 +7,7 @@ export const defaultSystemPrompt =
 export type Config = {
   enabled: boolean;
   quiet: boolean;
+  autoSelect: boolean;
   toolName: string;
   toolDescription: string;
   systemPrompt: string;
@@ -15,6 +16,7 @@ export type Config = {
 const defaults: Config = {
   enabled: true,
   quiet: false,
+  autoSelect: false,
   toolName: "set_reasoning_effort",
   toolDescription: "Set your reasoning effort",
   systemPrompt: defaultSystemPrompt,
@@ -29,7 +31,7 @@ export const parseConfig = (options: unknown): { config: Config } | { error: str
   const input = options as Record<string, unknown>;
   const config = { ...defaults };
 
-  for (const key of ["enabled", "quiet"] as const) {
+  for (const key of ["enabled", "quiet", "autoSelect"] as const) {
     const value = input[key];
     if (value === undefined) continue;
     if (typeof value !== "boolean") return { error: `${key} must be a boolean` };

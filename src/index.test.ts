@@ -115,6 +115,45 @@ describe("AdaptiveThinkingPlugin", () => {
     expect(system[0]).toContain("adjust_reasoning");
   });
 
+  test("selects and carries an effort when autoSelect is enabled", async () => {
+    const { client } = createClient();
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, { autoSelect: true });
+    const input = { sessionID: "auto-select", model: { providerID: "provider", modelID: "model" } };
+
+    const first = message().info;
+    await plugin["chat.message"](input, {
+      message: first,
+      parts: [{ type: "text", text: "fix a typo" }],
+    });
+    expect((first.model as { variant?: string }).variant).toBe("low");
+
+    const second = message().info;
+    await plugin["chat.message"](input, {
+      message: second,
+      parts: [{ type: "text", text: "debug the flaky race" }],
+    });
+    expect((second.model as { variant?: string }).variant).toBe("low");
+  });
+
+  test("leaves messages alone when autoSelect is disabled or the prompt is ignored", async () => {
+    const { client } = createClient();
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never);
+
+    const manual = message().info;
+    await plugin["chat.message"](
+      { sessionID: "auto-off", model: { providerID: "provider", modelID: "model" } },
+      { message: manual, parts: [{ type: "text", text: "debug the flaky race" }] },
+    );
+    expect((manual.model as { variant?: string }).variant).toBeUndefined();
+
+    const ignored = message().info;
+    await plugin["chat.message"](
+      { sessionID: "auto-off", model: { providerID: "provider", modelID: "model" } },
+      { message: ignored, parts: [{ type: "text", text: "debug the flaky race", ignored: true }] },
+    );
+    expect((ignored.model as { variant?: string }).variant).toBeUndefined();
+  });
+
   test("returns no hooks when disabled", async () => {
     const { client } = createClient();
     expect(await AdaptiveThinkingPlugin({ client } as never, { enabled: false })).toEqual({});

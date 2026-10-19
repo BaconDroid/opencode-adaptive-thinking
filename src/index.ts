@@ -2,6 +2,7 @@ import { tool, type Plugin } from "@opencode-ai/plugin";
 import type { Message, Part, Provider } from "@opencode-ai/sdk/v2";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { parseConfig } from "./config.js";
+import { classifyPrompt, pickVariant } from "./complexity.js";
 
 const z = tool.schema;
 const serviceName = "opencode-adaptive-thinking";
@@ -137,6 +138,15 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
     return match?.variant;
   };
 
+  const promptText = (parts: Array<Part>) => {
+    if (parts.some((part) => part.type === "text" && part.ignored)) return;
+    return parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+  };
+
   const sendVariantPrompt = (
     sessionID: string,
     variant: string,
@@ -213,6 +223,23 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
           return `Reasoning effort set to ${level}`;
         },
       }),
+    },
+    "chat.message": async ({ sessionID }, { message, parts }) => {
+      if (!config.autoSelect) return;
+
+      const text = promptText(parts);
+      if (text === undefined) return;
+
+      const variants = await variantsFor(message.model);
+      const cached = state.get(sessionID)?.variant;
+      const level =
+        cached && variants.includes(cached) ? cached : pickVariant(variants, classifyPrompt(text));
+      if (!level) return;
+
+      (message.model as { variant?: string }).variant = level;
+      state.update(sessionID, (entry) => {
+        entry.variant = level;
+      });
     },
     event: async ({ event }) => {
       if (event.type !== "session.idle") return;

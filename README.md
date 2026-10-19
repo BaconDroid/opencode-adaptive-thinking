@@ -38,6 +38,7 @@ The plugin accepts these optional settings:
 
 - `enabled`: enable or disable the plugin without removing it from config. Defaults to `true`.
 - `quiet`: suppress toast notifications for configuration errors. Defaults to `false`.
+- `autoSelect`: choose an effort level from each user request and apply it to the turn. Defaults to `false`.
 - `toolName`: name of the reasoning-effort tool exposed to agents. Defaults to `set_reasoning_effort`.
 - `toolDescription`: description for the reasoning-effort tool. Defaults to `Set your reasoning effort`.
 - `systemPrompt`: custom adaptive-thinking guidance injected into the system prompt.
@@ -88,6 +89,8 @@ Example persisted change:
 ```
 
 The system prompt lists the valid levels for the current session. Cached session state is only used when it is still valid for the current model, so switching models will not advertise or reuse an invalid effort level.
+
+With `autoSelect` enabled, the plugin classifies each user request and sets the effort from the available variants for the current model, ignoring `none`. The chosen level is carried across turns until the agent changes it or the model changes. This mode manages the level, so a variant chosen only in the UI is overridden.
 
 Adaptive-thinking guidance is merged into the first existing system prompt instead of a separate system message, so strict chat templates that allow only one system message keep working.
 
