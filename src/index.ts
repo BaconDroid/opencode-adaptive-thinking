@@ -14,6 +14,7 @@ type SessionMessage = { info: Message; parts: Array<Part> };
 type SessionState = {
   variant?: string;
   recommendation?: string;
+  locked?: boolean;
   reset?: { level: string; agent: string; model?: ModelInfo };
 };
 
@@ -149,6 +150,9 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
     return text.length > 0 ? text : undefined;
   };
 
+  const followUp = /^(continue|go on|proceed|next|yes|ok|okay|sure|do it|go ahead|thanks|merci)\b/i;
+  const isFollowUp = (text: string) => text.length < 60 && followUp.test(text);
+
   const sendVariantPrompt = (
     sessionID: string,
     variant: string,
@@ -215,6 +219,9 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
 
           state.update(sessionID, (entry) => {
             entry.variant = level;
+            if (persist) entry.locked = true;
+            else delete entry.locked;
+            delete entry.recommendation;
             if (persist || !baseline || baseline === level || !variants.includes(baseline)) {
               delete entry.reset;
             } else {
@@ -230,38 +237,72 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
       const text = promptText(parts);
       if (text === undefined) return;
 
-      if (config.autoSelect && variant) {
-        (message.model as { variant?: string }).variant = variant;
-        state.update(sessionID, (entry) => {
-          entry.variant = variant;
-          delete entry.recommendation;
-        });
-        return;
-      }
-
       const variants = await variantsFor(message.model);
-      const current = variant ?? (message.model as { variant?: string }).variant;
+      const session = state.get(sessionID);
+      const cached = session?.variant;
+      const current = cached && variants.includes(cached) ? cached : undefined;
 
       if (config.autoSelect) {
-        const cached = state.get(sessionID)?.variant;
-        const level =
-          cached && variants.includes(cached)
-            ? cached
-            : pickVariant(variants, classifyPrompt(text));
-        if (!level) return;
+        if (variant) {
+          (message.model as { variant?: string }).variant = variant;
+          state.update(sessionID, (entry) => {
+            entry.variant = variant;
+            entry.locked = true;
+            delete entry.recommendation;
+          });
+          return;
+        }
 
-        (message.model as { variant?: string }).variant = level;
+        if (!current) {
+          const level = pickVariant(variants, classifyPrompt(text));
+          if (!level) return;
+          (message.model as { variant?: string }).variant = level;
+          state.update(sessionID, (entry) => {
+            entry.variant = level;
+            delete entry.locked;
+            delete entry.recommendation;
+          });
+          return;
+        }
+
+        if (isFollowUp(text)) {
+          (message.model as { variant?: string }).variant = current;
+          state.update(sessionID, (entry) => {
+            delete entry.recommendation;
+          });
+          return;
+        }
+
+        const recommended = pickVariant(variants, classifyPrompt(text));
+        const up = recommended && variants.indexOf(recommended) > variants.indexOf(current);
+        if (up && !session?.locked) {
+          (message.model as { variant?: string }).variant = recommended;
+          state.update(sessionID, (entry) => {
+            entry.variant = recommended;
+            delete entry.recommendation;
+          });
+          return;
+        }
+
+        (message.model as { variant?: string }).variant = current;
         state.update(sessionID, (entry) => {
-          entry.variant = level;
-          delete entry.recommendation;
+          if (recommended && recommended !== current) entry.recommendation = recommended;
+          else delete entry.recommendation;
         });
         return;
       }
 
-      if (current) {
+      const currentValue = variant ?? (message.model as { variant?: string }).variant;
+      if (currentValue) {
         state.update(sessionID, (entry) => {
-          entry.variant = current;
+          entry.variant = currentValue;
         });
+      }
+      if (isFollowUp(text)) {
+        state.update(sessionID, (entry) => {
+          delete entry.recommendation;
+        });
+        return;
       }
 
       const recommended = pickVariant(variants, classifyPrompt(text));
@@ -333,7 +374,9 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
 
       const recommendation = state.get(sessionID)?.recommendation;
       const effortInstruction = config.autoSelect
-        ? `Reasoning effort is selected automatically; call \`${config.toolName}\` only to override it.`
+        ? recommendation && recommendation !== variant
+          ? `This turn suggests ${recommendation} effort${variant ? ` (current: ${variant})` : ""}. Automatic selection is holding the current level; call \`${config.toolName}\` with \`${recommendation}\` if the work needs it.`
+          : `Reasoning effort is selected automatically; call \`${config.toolName}\` only to override it.`
         : recommendation && recommendation !== variant
           ? `This turn suggests ${recommendation} effort${variant ? ` (current: ${variant})` : ""}. Call \`${config.toolName}\` with \`${recommendation}\` before proceeding.`
           : recommendation

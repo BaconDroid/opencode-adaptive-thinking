@@ -115,7 +115,7 @@ describe("AdaptiveThinkingPlugin", () => {
     expect(system[0]).toContain("adjust_reasoning");
   });
 
-  test("selects and carries an effort when autoSelect is enabled", async () => {
+  test("selects and upshifts automatically when autoSelect is enabled", async () => {
     const { client } = createClient();
     const plugin: any = await AdaptiveThinkingPlugin({ client } as never, { autoSelect: true });
     const input = { sessionID: "auto-select", model: { providerID: "provider", modelID: "model" } };
@@ -132,7 +132,60 @@ describe("AdaptiveThinkingPlugin", () => {
       message: second,
       parts: [{ type: "text", text: "debug the flaky race" }],
     });
-    expect((second.model as { variant?: string }).variant).toBe("low");
+    expect((second.model as { variant?: string }).variant).toBe("high");
+  });
+
+  test("never downshifts automatically", async () => {
+    const { client } = createClient([message("medium")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, { autoSelect: true });
+    const input = { sessionID: "auto-down", model: { providerID: "provider", modelID: "model" } };
+
+    const first = message().info;
+    await plugin["chat.message"](input, {
+      message: first,
+      parts: [{ type: "text", text: "debug the flaky race" }],
+    });
+    expect((first.model as { variant?: string }).variant).toBe("high");
+
+    const second = message().info;
+    await plugin["chat.message"](input, {
+      message: second,
+      parts: [{ type: "text", text: "fix a typo" }],
+    });
+    expect((second.model as { variant?: string }).variant).toBe("high");
+
+    const system: Array<string> = [];
+    await transform(plugin, "auto-down", system);
+    expect(system[0]).toContain("This turn suggests low effort (current: high)");
+
+    const third = message().info;
+    await plugin["chat.message"](input, {
+      message: third,
+      parts: [{ type: "text", text: "continue" }],
+    });
+    expect((third.model as { variant?: string }).variant).toBe("high");
+
+    const after = new Array<string>();
+    await transform(plugin, "auto-down", after);
+    expect(after[0]).not.toContain("This turn suggests");
+  });
+
+  test("keeps a persisted tool level against automatic upshifts", async () => {
+    const { client } = createClient([message("medium")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, { autoSelect: true });
+    const input = { sessionID: "auto-locked", model: { providerID: "provider", modelID: "model" } };
+
+    await set(plugin, "low", true, "auto-locked");
+    const next = message().info;
+    await plugin["chat.message"](input, {
+      message: next,
+      parts: [{ type: "text", text: "debug the flaky race" }],
+    });
+    expect((next.model as { variant?: string }).variant).toBe("low");
+
+    const system: Array<string> = [];
+    await transform(plugin, "auto-locked", system);
+    expect(system[0]).toContain("This turn suggests high effort (current: low)");
   });
 
   test("honors an explicit variant in autoSelect mode", async () => {

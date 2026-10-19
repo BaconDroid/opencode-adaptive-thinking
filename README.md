@@ -38,7 +38,7 @@ The plugin accepts these optional settings:
 
 - `enabled`: enable or disable the plugin without removing it from config. Defaults to `true`.
 - `quiet`: suppress toast notifications for configuration errors. Defaults to `false`.
-- `autoSelect`: choose an initial effort level from the first user request in a session and carry it across turns. Defaults to `false`.
+- `autoSelect`: choose an initial effort level and raise it automatically on later, more complex requests. Defaults to `false`.
 - `toolName`: name of the reasoning-effort tool exposed to agents. Defaults to `set_reasoning_effort`.
 - `toolDescription`: description for the reasoning-effort tool. Defaults to `Set your reasoning effort`.
 - `systemPrompt`: custom adaptive-thinking guidance injected into the system prompt.
@@ -90,7 +90,7 @@ Example persisted change:
 
 The system prompt lists the valid levels for the current session. Cached session state is only used when it is still valid for the current model, so switching models will not advertise or reuse an invalid effort level.
 
-With `autoSelect` enabled, the plugin classifies the first user request in a session and sets the effort from the available variants for the current model, ignoring `none`. The chosen level is carried across turns until the agent changes it, the model changes, or a request carries an explicit variant. An explicit variant (UI picker, CLI flag, or API field) is honored and becomes the level carried forward.
+With `autoSelect` enabled, the plugin classifies the first user request in a session and sets the effort from the available variants for the current model, ignoring `none`. On later turns it raises the level automatically when the request classifies higher, but never lowers it automatically: a lower level is surfaced to the agent as a recommendation and applied only through the tool. Short follow-ups such as `continue` or `ok` keep the current level. An explicit variant (UI picker, CLI flag, or API field) or a `persist: true` tool call locks the level until a temporary tool call or a model change.
 
 When `autoSelect` is off, the plugin still classifies each user turn and adds a recommendation to the guidance. If the recommended level differs from the current one, the agent is told to call the tool with that level; if it matches, the agent is told to keep the level unless the work grows beyond it. The default guidance relies on this recommendation instead of a blanket reassessment instruction.
 
