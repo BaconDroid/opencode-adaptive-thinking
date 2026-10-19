@@ -1,5 +1,5 @@
 import { tool, type Plugin } from "@opencode-ai/plugin";
-import type { Message, Part } from "@opencode-ai/sdk/v2";
+import type { Message, Part, Provider } from "@opencode-ai/sdk/v2";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { parseConfig } from "./config.js";
 
@@ -9,10 +9,6 @@ const maxSessionStateSize = 500;
 const historyLimit = 20;
 
 type ModelInfo = { providerID: string; modelID: string };
-type ProviderInfo = {
-  id: string;
-  models: Record<string, { variants?: Record<string, unknown> }>;
-};
 type SessionMessage = { info: Message; parts: Array<Part> };
 type SessionState = {
   variant?: string;
@@ -83,7 +79,7 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
     return Object.keys(variants ?? {});
   };
 
-  let providers: Array<ProviderInfo> | undefined;
+  let providers: Array<Provider> | undefined;
 
   const variantsFor = async (model: ModelInfo) => {
     if (!providers) {
@@ -92,7 +88,7 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
         logError("Failed to retrieve providers", response.error);
         return [];
       }
-      providers = (response.data?.all ?? []) as unknown as Array<ProviderInfo>;
+      providers = (response.data?.all ?? []) as unknown as Array<Provider>;
     }
     const provider = providers.find((candidate) => candidate.id === model.providerID);
     return getModelVariants(provider?.models[model.modelID]);
@@ -190,7 +186,10 @@ export const AdaptiveThinkingPlugin: Plugin = async ({ client }, options) => {
             return `Invalid reasoning effort level: ${level}. Valid levels: ${variants.join(", ")}.`;
           }
 
-          const baseline = state.get(sessionID)?.reset?.level ?? (await latestVariant(messages));
+          const baseline =
+            state.get(sessionID)?.reset?.level ??
+            state.get(sessionID)?.variant ??
+            (await latestVariant(messages));
           const response = await sendVariantPrompt(
             sessionID,
             level,

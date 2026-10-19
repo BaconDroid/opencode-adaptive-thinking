@@ -12,6 +12,17 @@ const message = (variant?: string, agent = "agent") => ({
   parts: [],
 });
 
+const assistant = (variant?: string) => ({
+  info: {
+    role: "assistant",
+    agent: "agent",
+    providerID: "provider",
+    modelID: "model",
+    ...(variant ? { variant } : {}),
+  },
+  parts: [],
+});
+
 const createClient = (
   messages: Array<any> = [],
   modelVariants: Record<string, object> = variants,
@@ -168,6 +179,17 @@ describe("AdaptiveThinkingPlugin", () => {
       model: { providerID: "provider", modelID: "model" },
       parts: [{ synthetic: true, ignored: true }],
     });
+  });
+
+  test("reads the model and variant from assistant messages", async () => {
+    const { client, prompts } = createClient([message("medium"), assistant("high")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never);
+
+    await set(plugin, "low", false, "assistant-shape");
+    await idle(plugin, "assistant-shape");
+
+    expect(prompts[0].model).toEqual({ providerID: "provider", modelID: "model" });
+    expect(prompts.map((prompt) => prompt.variant)).toEqual(["low", "high"]);
   });
 
   test("keeps the original baseline across repeated temporary changes", async () => {
