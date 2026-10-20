@@ -37,6 +37,12 @@ const createClient = (
         messages.push(message(body.variant));
         return { error: undefined };
       }),
+      create: vi.fn(async () => ({ data: { id: "classifier" }, error: undefined })),
+      prompt: vi.fn(async () => ({
+        data: { parts: [{ type: "text", text: "high" }] },
+        error: undefined,
+      })),
+      delete: vi.fn(async () => ({ data: true, error: undefined })),
     },
     provider: {
       list: vi.fn(async () => ({
@@ -62,6 +68,20 @@ const ctx = (sessionID: string, agent = "agent") => ({ sessionID, agent });
 
 const set = (plugin: any, level: string, persist: boolean, sessionID: string) =>
   plugin.tool.set_reasoning_effort.execute({ level, persist }, ctx(sessionID));
+
+const say = async (
+  plugin: any,
+  sessionID: string,
+  text: string,
+  extra: Record<string, unknown> = {},
+) => {
+  const user = message().info;
+  await plugin["chat.message"](
+    { sessionID, model: { providerID: "provider", modelID: "model" }, ...extra },
+    { message: user, parts: [{ type: "text", text }] },
+  );
+  return user;
+};
 
 const idle = (plugin: any, sessionID: string) =>
   plugin.event({ event: { type: "session.idle", properties: { sessionID } } });
@@ -287,18 +307,244 @@ describe("AdaptiveThinkingPlugin", () => {
     expect(system[0]).toContain("Current reasoning effort level: low.");
   });
 
-  test("evicts the oldest session state when the cache is full", async () => {
-    const oldest = createClient([message("medium")]);
-    const oldestPlugin: any = await AdaptiveThinkingPlugin({ client: oldest.client } as never);
-    await set(oldestPlugin, "low", false, "lru-0");
+  test("drops session state when the session is deleted", async () => {
+    const { client, prompts } = createClient([message("medium")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never);
 
-    for (let i = 1; i <= 500; i++) {
-      const { client } = createClient([message("medium")]);
-      const plugin: any = await AdaptiveThinkingPlugin({ client } as never);
-      await set(plugin, "low", false, `lru-${i}`);
-    }
+    await set(plugin, "low", false, "deleted-session");
+    await plugin.event({
+      event: { type: "session.deleted", properties: { info: { id: "deleted-session" } } },
+    } as never);
+    await idle(plugin, "deleted-session");
 
-    await idle(oldestPlugin, "lru-0");
-    expect(oldest.prompts).toHaveLength(1);
+    expect(prompts).toHaveLength(1);
+  });
+
+  test("injects guidance once per user turn when afterUserMessage is set", async () => {
+    const { client } = createClient([message("medium")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      triggers: { afterIdle: false, afterUserMessage: true },
+    });
+
+    await say(plugin, "guidance-user", "hello");
+    const first = new Array<string>();
+    await transform(plugin, "guidance-user", first);
+    expect(first).toHaveLength(1);
+
+    const second = new Array<string>();
+    await transform(plugin, "guidance-user", second);
+    expect(second).toHaveLength(0);
+  });
+
+  test("injects guidance after idle when afterIdle is set", async () => {
+    const { client } = createClient([message("medium")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      triggers: { afterIdle: true, afterUserMessage: false },
+    });
+
+    const first = new Array<string>();
+    await transform(plugin, "guidance-idle", first);
+    expect(first).toHaveLength(1);
+
+    const second = new Array<string>();
+    await transform(plugin, "guidance-idle", second);
+    expect(second).toHaveLength(0);
+
+    await idle(plugin, "guidance-idle");
+    const third = new Array<string>();
+    await transform(plugin, "guidance-idle", third);
+    expect(third).toHaveLength(1);
+  });
+
+  test("does not inject twice for a user message after idle", async () => {
+    const { client } = createClient([message("medium")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      triggers: { afterIdle: true, afterUserMessage: true },
+    });
+
+    await idle(plugin, "guidance-both");
+    await say(plugin, "guidance-both", "hello");
+    const system = new Array<string>();
+    await transform(plugin, "guidance-both", system);
+    expect(system).toHaveLength(1);
+  });
+
+  test("injects nothing when both triggers are false", async () => {
+    const { client } = createClient([message("medium")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      triggers: { afterIdle: false, afterUserMessage: false },
+    });
+
+    await say(plugin, "guidance-none", "hello");
+    const system = new Array<string>();
+    await transform(plugin, "guidance-none", system);
+    expect(system).toHaveLength(0);
+  });
+
+  test("classifies user turns but not idle turns", async () => {
+    const { client } = createClient([message("medium")]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      triggers: { afterIdle: true, afterUserMessage: true },
+      classifier: { enabled: true },
+    });
+
+    await transform(plugin, "classifier-idle", new Array<string>());
+    expect(client.session.create).not.toHaveBeenCalled();
+
+    await say(plugin, "classifier-user", "debug the flaky test");
+    expect(client.session.create).toHaveBeenCalledTimes(1);
+  });
+
+  test("uses the last compaction summary in the classifier context", async () => {
+    const summary = "SUMMARY-CONTEXT";
+    const { client } = createClient([
+      message("medium"),
+      {
+        info: { role: "assistant", agent: "agent", summary: true, time: { created: 1 } },
+        parts: [{ type: "text", text: summary }],
+      },
+    ]);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      classifier: { enabled: true },
+    });
+
+    await say(plugin, "classifier-summary", "next step");
+    const calls = client.session.prompt.mock.calls as unknown as Array<[any]>;
+    const call = calls.at(-1)?.[0];
+    expect(call?.body.parts[0].text).toContain(summary);
+    expect(call?.body.parts[0].text).toContain("Current message:\nnext step");
+  });
+
+  test("classifies each real user message", async () => {
+    const { client } = createClient();
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      classifier: { enabled: true },
+    });
+    const input = {
+      sessionID: "classifier-initial",
+      model: { providerID: "provider", modelID: "model" },
+    };
+
+    const first = message().info;
+    await plugin["chat.message"](input, {
+      message: first,
+      parts: [{ type: "text", text: "debug the flaky auth test" }],
+    });
+    const second = message().info;
+    await plugin["chat.message"](input, {
+      message: second,
+      parts: [{ type: "text", text: "explain this function" }],
+    });
+
+    expect((first.model as { variant?: string }).variant).toBe("high");
+    expect((second.model as { variant?: string }).variant).toBe("high");
+    expect(client.session.create).toHaveBeenCalledTimes(2);
+    expect(client.session.create).toHaveBeenCalledWith({
+      body: expect.objectContaining({ parentID: "classifier-initial" }),
+    });
+    expect(client.session.prompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          model: { providerID: "opencode", modelID: "big-pickle" },
+          tools: { "*": false },
+        }),
+      }),
+    );
+    expect(client.session.delete).toHaveBeenCalled();
+  });
+
+  test("does not classify when disabled or with an explicit variant", async () => {
+    const { client } = createClient();
+    const off: any = await AdaptiveThinkingPlugin({ client } as never);
+    await off["chat.message"](
+      { sessionID: "classifier-off", model: { providerID: "provider", modelID: "model" } },
+      { message: message().info, parts: [{ type: "text", text: "debug" }] },
+    );
+    expect(client.session.create).not.toHaveBeenCalled();
+
+    const on: any = await AdaptiveThinkingPlugin({ client } as never, {
+      classifier: { enabled: true },
+    });
+    const first = message().info;
+    await on["chat.message"](
+      {
+        sessionID: "classifier-explicit",
+        model: { providerID: "provider", modelID: "model" },
+        variant: "low",
+      },
+      { message: first, parts: [{ type: "text", text: "debug" }] },
+    );
+    expect(client.session.create).not.toHaveBeenCalled();
+    expect((first.model as { variant?: string }).variant).toBeUndefined();
+  });
+
+  test("ignores synthetic user messages", async () => {
+    const { client } = createClient();
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      classifier: { enabled: true },
+    });
+    const first = message().info;
+
+    await plugin["chat.message"](
+      { sessionID: "classifier-synthetic", model: { providerID: "provider", modelID: "model" } },
+      {
+        message: first,
+        parts: [{ type: "text", text: "Continue if you have next steps.", synthetic: true }],
+      },
+    );
+
+    expect(client.session.create).not.toHaveBeenCalled();
+    expect((first.model as { variant?: string }).variant).toBeUndefined();
+  });
+
+  test("ignores an invalid classifier answer", async () => {
+    const { client } = createClient();
+    client.session.prompt.mockResolvedValueOnce({
+      data: { parts: [{ type: "text", text: "unsure" }] },
+      error: undefined,
+    } as never);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      classifier: { enabled: true },
+    });
+    const first = message().info;
+
+    await plugin["chat.message"](
+      { sessionID: "classifier-invalid", model: { providerID: "provider", modelID: "model" } },
+      { message: first, parts: [{ type: "text", text: "debug" }] },
+    );
+
+    expect((first.model as { variant?: string }).variant).toBeUndefined();
+  });
+
+  test("fails open when the classifier cannot be created", async () => {
+    const { client } = createClient();
+    client.session.create.mockResolvedValueOnce({
+      data: undefined,
+      error: { data: { message: "unavailable" } },
+    } as never);
+    const plugin: any = await AdaptiveThinkingPlugin({ client } as never, {
+      classifier: { enabled: true },
+    });
+    const first = message().info;
+
+    await plugin["chat.message"](
+      { sessionID: "classifier-failure", model: { providerID: "provider", modelID: "model" } },
+      { message: first, parts: [{ type: "text", text: "debug" }] },
+    );
+
+    expect((first.model as { variant?: string }).variant).toBeUndefined();
+    expect(client.app.log).toHaveBeenCalledWith({
+      body: expect.objectContaining({ level: "warn" }),
+    });
+  });
+
+  test("rejects an invalid classifier configuration", async () => {
+    const { client } = createClient();
+    const plugin = await AdaptiveThinkingPlugin({ client } as never, {
+      classifier: { enabled: "yes" },
+    });
+
+    expect(plugin).toEqual({});
+    expect(client.app.log).toHaveBeenCalled();
   });
 });
