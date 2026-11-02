@@ -14,6 +14,7 @@
   },
   "files": [
     "dist",
+    "index.js",
     "README.md"
   ],
   "type": "module",
@@ -37,6 +38,9 @@
     "verify": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
     "version-packages": "changeset version"
   },
+  "dependencies": {
+    "@opencode/plugin": "~2.0.30"
+  },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.31.0",
@@ -48,10 +52,6 @@
     "rolldown": "1.1.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
-  },
-  "peerDependencies": {
-    "@opencode-ai/plugin": ">=1",
-    "@opencode-ai/sdk": ">=1"
   },
   "packageManager": "pnpm@11.8.0"
 }
