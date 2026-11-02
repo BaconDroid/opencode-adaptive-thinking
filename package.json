@@ -53,5 +53,8 @@
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   },
+  "overrides": {
+    "@vitest/browser-playwright": "^5.1.0"
+  },
   "packageManager": "pnpm@11.8.0"
 }
